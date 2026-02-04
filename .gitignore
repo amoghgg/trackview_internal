@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+.env/
+
+# PyInstaller
+dist/
+build/
+*.spec
+
+# Jupyter Notebooks (if any)
+.ipynb_checkpoints
+
+# OS generated files
+.DS_Store
+.Trashes
+Thumbs.db
+
+# Uploaded data
+uploaded_data.csv
