@@ -57,33 +57,44 @@ def export_csv():
         header = [
             'Vehicle ID', 
             'Center Code', 
-            'Last Location', 
-            'Status (15-20th)', 
-            'Status (21st)', 
-            'Last Updated', 
-            'Timeline'
+            'Last Location (Vehicle)', # Changed to specify it's the vehicle's last location
+            'Timestamp (Log)', 
+            'Status (Log)', 
+            'Message (Log)'
         ]
         writer.writerow(header)
 
-        # Write vehicle data
+        # Write vehicle data, one row per log entry
         for vehicle in vehicles:
-            timeline_str = ""
-            if vehicle.get('logs'):
-                timeline_str = "; ".join([
-                    f"{log['timestamp']} - {log['status']} - {log['message']} - {log['location']}" 
-                    for log in vehicle['logs']
-                ])
+            vehicle_id = vehicle.get('vehicle_id', '')
+            center_code = vehicle.get('center_id', 'N/A')
+            last_location_vehicle = vehicle.get('last_location', 'Unknown')
+            
+            # Ensure logs are sorted latest to oldest (already done by converter, but re-confirming logic)
+            logs = sorted(vehicle.get('logs', []), key=lambda x: x['timestamp'], reverse=True)
 
-            row = [
-                vehicle.get('vehicle_id', ''),
-                vehicle.get('center_id', 'N/A'),
-                vehicle.get('last_location', 'Unknown'),
-                vehicle.get('status_15_20', 'No Data'),
-                vehicle.get('status_21', 'No Data'),
-                vehicle.get('last_updated', 'N/A'),
-                timeline_str
-            ]
-            writer.writerow(row)
+            if not logs:
+                # If no logs, still write one row for the vehicle with N/A for log-specific fields
+                row = [
+                    vehicle_id,
+                    center_code,
+                    last_location_vehicle,
+                    'N/A', # Timestamp
+                    'No Data', # Status
+                    'No Data' # Message
+                ]
+                writer.writerow(row)
+            else:
+                for log in logs:
+                    row = [
+                        vehicle_id,
+                        center_code,
+                        last_location_vehicle,
+                        log.get('timestamp', 'N/A'),
+                        log.get('status', 'No Data'),
+                        log.get('message', 'No Data')
+                    ]
+                    writer.writerow(row)
 
         output.seek(0)
         return Response(
