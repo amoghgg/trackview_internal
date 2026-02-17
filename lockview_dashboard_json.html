@@ -429,18 +429,19 @@
         <div class="controls">
             <input type="text" id="searchVehicle" placeholder="🔍 Search Vehicle ID..." oninput="filterTable()">
             <input type="text" id="searchCenter" placeholder="🏢 Search Center Code..." oninput="filterTable()">
-            <select id="filterStatus15" onchange="filterTable()">
-                <option value="">All Status (15-20th)</option>
-                <option value="Locked">Locked</option>
-                <option value="Unlocked">Unlocked</option>
-                <option value="No Data">No Data</option>
-            </select>
-            <select id="filterStatus21" onchange="filterTable()">
-                <option value="">All Status (21st)</option>
-                <option value="Locked">Locked</option>
-                <option value="Unlocked">Unlocked</option>
-                <option value="No Data">No Data</option>
-            </select>
+            
+            <!-- Date Range 1 for Status 1 -->
+            <label for="dateRange1Start">Status 1 (Start):</label>
+            <input type="date" id="dateRange1Start" onchange="filterTable()">
+            <label for="dateRange1End">Status 1 (End):</label>
+            <input type="date" id="dateRange1End" onchange="filterTable()">
+
+            <!-- Date Range 2 for Status 2 -->
+            <label for="dateRange2Start">Status 2 (Start):</label>
+            <input type="date" id="dateRange2Start" onchange="filterTable()">
+            <label for="dateRange2End">Status 2 (End):</label>
+            <input type="date" id="dateRange2End" onchange="filterTable()">
+            
             <button onclick="resetFilters()">🔄 Reset Filters</button>
         </div>
 
@@ -456,8 +457,8 @@
                         <th>Vehicle ID</th>
                         <th>Center Code</th>
                         <th>Last Location</th>
-                        <th>Status (15-20th)</th>
-                        <th>Status (21st)</th>
+                        <th id="status1Header">Status (15-20th)</th>
+                        <th id="status2Header">Status (21st)</th>
                         <th>Last Updated</th>
                     </tr>
                 </thead>
@@ -571,31 +572,71 @@
             return location.length > 60 ? location.substring(0, 60) + '...' : location;
         }
 
-        function filterTable() {
+        async function filterTable() {
             const searchText = document.getElementById('searchVehicle').value.toLowerCase();
             const searchCenter = document.getElementById('searchCenter').value.toLowerCase();
-            const status15Filter = document.getElementById('filterStatus15').value;
-            const status21Filter = document.getElementById('filterStatus21').value;
             
-            filteredData = allData.filter(vehicle => {
-                const matchesSearch = vehicle.vehicle_id.toLowerCase().includes(searchText);
-                const matchesCenter = !searchCenter || (vehicle.center_id && vehicle.center_id.toLowerCase().includes(searchCenter));
-                const matchesStatus15 = !status15Filter || vehicle.status_15_20 === status15Filter;
-                const matchesStatus21 = !status21Filter || vehicle.status_21 === status21Filter;
+            const dateRange1Start = document.getElementById('dateRange1Start').value;
+            const dateRange1End = document.getElementById('dateRange1End').value;
+            const dateRange2Start = document.getElementById('dateRange2Start').value;
+            const dateRange2End = document.getElementById('dateRange2End').value;
+
+            // Construct query parameters
+            const queryParams = new URLSearchParams();
+            if (searchText) queryParams.append('searchVehicle', searchText);
+            if (searchCenter) queryParams.append('searchCenter', searchCenter);
+            if (dateRange1Start) queryParams.append('dateRange1Start', dateRange1Start);
+            if (dateRange1End) queryParams.append('dateRange1End', dateRange1End);
+            if (dateRange2Start) queryParams.append('dateRange2Start', dateRange2Start);
+            if (dateRange2End) queryParams.append('dateRange2End', dateRange2End);
+
+            try {
+                const response = await fetch(`/get_filtered_data?${queryParams.toString()}`);
+                const jsonData = await response.json();
                 
-                return matchesSearch && matchesCenter && matchesStatus15 && matchesStatus21;
-            });
-            
-            currentPage = 1;
-            displayTable();
+                allData = jsonData.vehicles; // The server will return already filtered and processed data
+                filteredData = allData; // All data is already filtered by server
+
+                // Update table headers based on selected date ranges
+                updateTableHeaders(dateRange1Start, dateRange1End, dateRange2Start, dateRange2End);
+
+                currentPage = 1;
+                displayTable();
+                showMessage('Data filtered successfully!', 'success');
+            } catch (error) {
+                console.error('Error fetching filtered data:', error);
+                showMessage('Error filtering data. Please try again.', 'error');
+            }
         }
 
         function resetFilters() {
             document.getElementById('searchVehicle').value = '';
             document.getElementById('searchCenter').value = '';
-            document.getElementById('filterStatus15').value = '';
-            document.getElementById('filterStatus21').value = '';
-            filterTable();
+            document.getElementById('dateRange1Start').value = '';
+            document.getElementById('dateRange1End').value = '';
+            document.getElementById('dateRange2Start').value = '';
+            document.getElementById('dateRange2End').value = '';
+            // Reset headers to default
+            document.getElementById('status1Header').textContent = 'Status (15-20th)';
+            document.getElementById('status2Header').textContent = 'Status (21st)';
+            loadData(); 
+        }
+
+        function updateTableHeaders(range1Start, range1End, range2Start, range2End) {
+            const status1Header = document.getElementById('status1Header');
+            const status2Header = document.getElementById('status2Header');
+
+            if (range1Start && range1End) {
+                status1Header.textContent = `Status (${range1Start} to ${range1End})`;
+            } else {
+                status1Header.textContent = 'Status (Range 1)'; // Default if no range selected
+            }
+
+            if (range2Start && range2End) {
+                status2Header.textContent = `Status (${range2Start} to ${range2End})`;
+            } else {
+                status2Header.textContent = 'Status (Range 2)'; // Default if no range selected
+            }
         }
 
         function nextPage() {

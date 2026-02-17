@@ -65,29 +65,44 @@ class LockviewConverter:
         return df
     
     def process_data(self, df):
-        """Process dataframe and calculate status for date ranges"""
+        """Process dataframe and extract all log entries for each vehicle"""
         vehicles = {}
         
         for _, row in df.iterrows():
             vehicle_id = row['Vehicle No.']
-            date_time = pd.to_datetime(row['Alert Generated Time'], format='%d-%m-%Y %H:%M', errors='coerce')
-            location = row['Address']
-            message = row['Message']
-            center_id = row.get('Center ID', 'N/A')  # Get Center ID
+            # Handle Excel serial date format for 'Alert Generated Time'
+            # Excel's date origin is '1899-12-30' for Windows systems
+            try:
+                date_time = pd.to_datetime(row['Alert Generated Time'], unit='D', origin='1899-12-30', errors='coerce')
+            except ValueError:
+                # Fallback for other potential formats if needed, though this should cover Excel serial
+                date_time = pd.to_datetime(row['Alert Generated Time'], errors='coerce')
+
+            # Handle NaN for location, message, center_id
+            location = row['Address'] if pd.notna(row['Address']) else ''
+            message = row['Message'] if pd.notna(row['Message']) else ''
+            center_id = row.get('Center ID')
+            center_id = str(center_id) if pd.notna(center_id) else 'N/A'
+            
             status = self.determine_status(message)
             
             if pd.isna(date_time):
+                continue
+
+            # NEW: Skip log entries where status is "Unknown"
+            if status == "Unknown":
                 continue
             
             # Initialize vehicle if not exists
             if vehicle_id not in vehicles:
                 vehicles[vehicle_id] = {
                     'vehicle_id': vehicle_id,
-                    'center_id': str(center_id),  # Add center code
+                    'center_id': center_id, # Use processed center_id
                     'logs': [],
-                    'status_15_20': 'No Data',
+                    # These will be dynamically calculated by the server, so just initialize
+                    'status_15_20': 'No Data', 
                     'status_21': 'No Data',
-                    'last_location': 'Unknown',
+                    'last_location': '', # Will be set by server if logs exist
                     'last_updated': None
                 }
             
@@ -97,33 +112,22 @@ class LockviewConverter:
                 'location': location,
                 'message': message,
                 'status': status,
-                'center_id': str(center_id),
-                'day': date_time.day
+                'center_id': center_id,
+                'day': date_time.day # Keep for potential future use or consistency
             }
             vehicles[vehicle_id]['logs'].append(log_entry)
         
-        # Process each vehicle to determine status for date ranges
+        # After processing all logs, set last_location and last_updated from the most recent log
         for vehicle_id, vehicle_data in vehicles.items():
-            # Sort logs by timestamp
-            vehicle_data['logs'].sort(key=lambda x: x['timestamp'], reverse=True)
-            
-            # Get status for 15-20th (most recent in this range)
-            logs_15_20 = [log for log in vehicle_data['logs'] if 15 <= log['day'] <= 20]
-            if logs_15_20:
-                vehicle_data['status_15_20'] = logs_15_20[0]['status']
-            
-            # Get status for 21st
-            logs_21 = [log for log in vehicle_data['logs'] if log['day'] == 21]
-            if logs_21:
-                vehicle_data['status_21'] = logs_21[0]['status']
-            
-            # Set last location and update time
+            vehicle_data['logs'].sort(key=lambda x: x['timestamp'], reverse=True) # Sort to get most recent
             if vehicle_data['logs']:
                 vehicle_data['last_location'] = vehicle_data['logs'][0]['location']
                 vehicle_data['last_updated'] = vehicle_data['logs'][0]['timestamp']
-        
-        return vehicles
-    
+            else:
+                vehicle_data['last_location'] = 'Unknown'
+                vehicle_data['last_updated'] = None
+
+        return vehicles    
     def convert_to_json(self, csv_filepath, json_output_path='lockview_data.json'):
         """Main conversion function: CSV -> JSON"""
         print(f"Reading CSV from: {csv_filepath}")
@@ -131,35 +135,24 @@ class LockviewConverter:
         print(f"Found {len(df)} log entries")
         
         print("Processing vehicle data...")
-        vehicles = self.process_data(df)
+        vehicles = self.process_data(df) # process_data no longer calculates fixed statuses
         print(f"Processed {len(vehicles)} vehicles")
         
-        # Create summary statistics
+        # Create summary statistics (these will be for the raw data, not filtered)
         total_vehicles = len(vehicles)
-        locked_15_20 = sum(1 for v in vehicles.values() if v['status_15_20'] == 'Locked')
-        locked_21 = sum(1 for v in vehicles.values() if v['status_21'] == 'Locked')
-        unlocked_15_20 = sum(1 for v in vehicles.values() if v['status_15_20'] == 'Unlocked')
-        unlocked_21 = sum(1 for v in vehicles.values() if v['status_21'] == 'Unlocked')
         
         # Create JSON structure
         json_data = {
             'metadata': {
                 'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'total_vehicles': total_vehicles,
-                'date_range': '15-01-2026 to 21-01-2026'
+                'date_range': 'All available data' # Indicate this is raw data
             },
-            'statistics': {
+            'statistics': { # These statistics are for the raw, full dataset
                 'total_vehicles': total_vehicles,
-                'status_15_20': {
-                    'locked': locked_15_20,
-                    'unlocked': unlocked_15_20,
-                    'no_data': total_vehicles - locked_15_20 - unlocked_15_20
-                },
-                'status_21': {
-                    'locked': locked_21,
-                    'unlocked': unlocked_21,
-                    'no_data': total_vehicles - locked_21 - unlocked_21
-                }
+                'total_logs': len(df),
+                'first_log_date': df['Alert Generated Time'].min() if not df.empty else 'N/A',
+                'last_log_date': df['Alert Generated Time'].max() if not df.empty else 'N/A'
             },
             'vehicles': list(vehicles.values())
         }
@@ -170,9 +163,9 @@ class LockviewConverter:
         
         print(f"\n✅ JSON file created: {json_output_path}")
         print(f"📊 Summary:")
-        print(f"   Total Vehicles: {total_vehicles}")
-        print(f"   Status (15-20th) - Locked: {locked_15_20}, Unlocked: {unlocked_15_20}")
-        print(f"   Status (21st) - Locked: {locked_21}, Unlocked: {unlocked_21}")
+        print(f"   Total Vehicles (raw data): {total_vehicles}")
+        print(f"   Total Logs (raw data): {len(df)}")
+        print(f"   Date Range (raw data): {json_data['statistics']['first_log_date']} to {json_data['statistics']['last_log_date']}")
         
         return json_data
 
